@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 3.17)
+project(graph_pattern_mining_framework LANGUAGES CXX CUDA)
+add_library(SubGraphMine miningPattern.cu miningPattern.h reduction.cu reduction.h)
+set_target_properties(SubGraphMine PROPERTIES CUDA_ARCHITECTURES "75")
+target_compile_features(SubGraphMine PUBLIC cxx_std_11)
+SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -ggdb")
+SET(CMAKE_CUDA_FLAGS_DEBUG "-g -G --ptxas-options=-v")
+SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
+SET(CMAKE_CUDA_FLAGS_RELEASE "-O3")
+include_directories(. /opt/cuda/targets/x86_64-linux/include)
+
+#add_executable(graph_pattern_mining_framework common.h genDatabase.cpp)
+add_executable(gpumine main.cpp loadDataBase.cpp loadDataBase.h genMatchOrder.cpp genMatchOrder.h)
+target_link_libraries(gpumine SubGraphMine)
+
+add_executable(gpumineSV main_singleV.cpp loadDataBase.cpp loadDataBase.h genMatchOrderSingleV.cpp genMatchOrderSingleV.h)
+target_link_libraries(gpumineSV SubGraphMine)
+
+add_executable(genDatabase genDatabase.cpp)
+add_executable(genQuery genQuery.cpp)
+add_executable(cpumine cpumine.cpp genMatchOrderCPU.cpp genMatchOrderCPU.h loadDataBase.cpp loadDataBase.h)

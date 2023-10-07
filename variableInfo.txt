@@ -1,0 +1,128 @@
+IDs of data vertices start from 1
+IDs of query vertices start from 0
+uint *vLabel {
+    labels of data vertices, the index is vertex ID and the value is the label of this vertex. vLabel[0] is the total number of vertices
+}
+
+map<uint,uint> queryVLabel {
+    labels of query vertices. key is vertex ID, value is the label of this vertex. put queryLabels into Phase
+}
+
+totWriteRowNum {
+    the number of rows writed, which is new emb. use cudaMemcpyAsync to initialize totWriteRowNum_dev into 0.
+}
+
+class recordPosInfo {
+    uint size;
+    uint *addr;
+} {
+    size is the number of uints that addr points to.
+    addr is positions of each source vid belong to the specified key. each position contains two uints, the first 
+    is the distance between the specified evid label position (including index vertices) and the starting address of 
+    neighbors of this svid in this edge label partition. the second is the len of neighbors (not including index vertices).
+    if the firsth uint is 1 and the second is 0, there is no neighbors belong to the evid 
+    label for this svid under the specified edge label. if the first is 0 and the second is 0, we need to test if there 
+    are neighbors belong to the evid label for this svid under the specified edge label. if the first >=0, second >0, we 
+    have the address. All first and second uints are initialized to 0
+}
+
+map<uint,recordPosInfo> recordPosData {
+    the key is combination of edge label and ext vid label. edge label is high 32 bits, ext vid label is low 32 bits.
+    the value is the recordPosInfo. size is the number of src vertices in the corresponding edge label partition.
+    addr is the address of allocateed space in host memory for the key. Noted that the space allocated for the keys that
+    have the same edge label are contiguous. the special key is edge label is high 32 bits and 0xffffffff is low 32 bits.
+    this means all keys that have the same edge label. the size in the corresponding recordPosInfo is the tot src vertices
+    number belong to the same edge label. the addr in the corresponding recordPosInfo is the starting address of this contiguous
+    allocated space.
+}
+
+vector<uint> auxArray {
+    for reduction:
+    this data is used for reduction to store svid and evid of reduction edges and other information. The format is
+    auxArray[0] = totUintNum, the number uints that used to stroe positions of svid and evid of reductions. each position
+        takes 5 bits, therefore, each uint can hold 3 pairs. not include auxArray[0], we at most have 16 pairs (6 uints),
+        therefore, the storage is fiexed to 6+1.
+    auxArray[1] = { svid1pos,evid1pos,svid2pos,evid2pos,svid3pos,evid3pos},...,. auxArray[1+totUintNum] = evid1label,
+    auxArray[1+totUintNum+1] = evid2label, auxArray[1+totUintNum+2] = evid3label,..., auxArray[1+totUintNum+16] = evid16label (if has).
+    we use fixed 16 uints to store labels. auxArray[1+totUintNum+16+1] = {record pos of this evidlabel},..., we use fixed 16 uints
+    to store record pos of the correspoing evidlabel. auxArray[1+totUintNum+16+16] = recordFlag, low 16 bits are useRecord, high 16 bits
+    are isRecord;
+    | totuint  | vid pos  |evid labels| record pos|   flag   |
+    |--1 uint--|--6 uint--|--16 uint--|--16 uint--|--1 uint--|
+
+    for extension:
+    this data is used to store positions of vertices that has the same vertex label with extvid1 and extvid2, and other information.
+    auxArray[0]=evid1label,auxArray[1]=evid2label,auxArray[2]=pos of restrict vertex of evid1, auxArray[3]=pos of restrict vertex of evid2.
+    auxArray[4]=pos of svid1,auxArray[5]=pos of svid2.
+    auxArray[6] is the number of vertices that has the same vertex label with extvid1. 
+    auxArray[7] is the total number of vertices that has the same vertex albel with extvid1 and extvid2
+    auxArray[8],..., are the positions of equal vertices for extvid1 and extvid2
+}
+
+map<uint,vector<uint>> equalPos {
+    key is the vertex label, value is positions of query vertices that have the same label as key.
+}
+
+map<uint64_t,uint> repeatFlag {
+    key is the combination of edge label and evid label, edge label is high 32 bits, evid label is low 32 bits. value is a combination
+    of two 16 bit numbers, the high 16 bits represent how many times this repeated and this value is not changed during mining.
+    the low 16 bits represents how many times left for this key.
+}
+
+map<uint,uint> restricts {
+    if (vid1,vid2) has restrict, then key is vid2, value is vid1
+}
+
+map<uint,uint*> allEdgeLabelPartitions {
+    key is the edge label in this data base, value is the address of the corresponding edge label partition. for the key 0xffffffff, the value
+    is vLabel. the format of edge label partition edgeLabelPartition is
+    |--uint0--|--uint1--|--uint2--|--uint3--|--uint4--|--array0--|--array1--|--array2--|--array3--|
+    array0: interval data, at most contains 256 intervals. each interval has two uints, the first uint is the starting vid of this 
+            interval, the second uint is the number of vertices that this and all previous intervals represent. if there are n intervals,
+            the first n uints in array0 are starting vids of all intervals, array0[n] is 0, array0[n+1] is the number of vertices in
+            the first interval, array0[n+2] is the number of vertices in the first and second intervals. the last element of array0 is the 
+            svid that separates array0 and array2
+    array1: the distance between the starting address of array3 and the starting address of neigbors of the corresponding interval vid.
+            need extra uint to record the end address for calculating the length of neighbors of last interval vertex
+    array2: hash index
+    array3: neighbors, neighbors of a vertex are grouped by end vertex label, the labels are in increasing order,
+    uint0: total uints in this edge label partition. including uint0
+    uint1: the number of source vids in array1 plus (the number of uints in array2)/2, because array2 needs to record vid and postion. we only need one
+            uint in our recordpos. this is used for recordPos, we do not count the extra uint in array1.
+    uint2: the number of intervals
+    uint3: the distance between the starting address of array2 and the starting address of array0
+    uint4: the distance between the starting address of array3 and the starting address of array0
+
+}
+
+vector<Phase> matchOrder{
+    if the phase is extension, and the one srouce vid and two evids are not the same label.
+    ext1label < ext2label
+}
+
+gpu memoyr arrangement
+|--vertex label--|--totWriteRowNum--|--edgeLabelPartition--|--recordPos(if has)--|--auxArray(if has)--|--new emb--|--partial emb--|
+
+
+basic naming conventions of arguments{
+    uint *baseAddr_dev, indicates the starting address of allocated gpu memory with vertex label and totWriteRowNum skipped
+    uint *partialEmb, generted embeddings;    
+    uint *edgeLabelPartition, edge label partition for the specified edge label.
+    uint *edgeLabelPartition_dev, stores elements of array0, array1, array2 and array3 in device memory
+    uint *neigborsData_dev, the starting address of array3
+    uint totSrcNum, uint1
+    uint intervalNum, uint2
+    uint *totWriteRowNum_dev, record how many rows are writed in this phase, the number of generated rows in the new embedding
+    uint partialRowNum, the number of rows in the partialEmb
+}
+
+vector<queryNeigInfo> query{
+    each query vertex has an entry in query. 
+    query[vid].neigs is the neighbors of vid in query.
+    since we have at most 32 query vertices, we use an uint to represent neighbors, each bit
+    represents a neighbor.
+    query[vid].edgeLabelNeigs is map<uint,vector<uint>>. this is the neigbors grouped by edge
+    labels, the key of the map is the edge label. and the vector is neighbors. note that 
+    vector[0] is the number of neighbors belong to this group, vector[1] is the bit represention
+    of neighbors 
+}
